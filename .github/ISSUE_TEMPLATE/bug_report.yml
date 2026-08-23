@@ -1,26 +1,55 @@
 name: Bug report
-description: Report a defect in this module
+description: Report a defect in lmca (@selveq/medusa-scripts)
 title: "[Bug] "
 labels: ["bug"]
 body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of lmca misbehaves?
+      options:
+        - stack lifecycle (start / stop / restart / destroy / status)
+        - port allocation (lmca ports)
+        - database (import-db / dump-db / reset-db / psql)
+        - migrate / seed-admin
+        - dev servers (backend / storefront startup, logs)
+        - proxy / nginx routing
+        - tunnel (setup / start / quick / stop)
+        - init / install (scaffolding, npm scripts, postinstall)
+        - other
+    validations:
+      required: true
   - type: textarea
     id: what
     attributes:
       label: What happened?
-      description: What went wrong, what you expected instead, and any error output.
+      description: What went wrong, what you expected instead, and the exact command you ran with its terminal output.
     validations:
       required: true
   - type: textarea
     id: reproduce
     attributes:
       label: How to reproduce
-      description: Steps to trigger it, including the command involved (lmca start, migrate, tunnel, ...) and your lmca.js configuration.
+      description: Steps from a known state (e.g. fresh `lmca init`, or `lmca destroy` then `lmca start`) to the failure.
     validations:
       required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: lmca.js
+      description: Your project's lmca.js (redact real passwords and tunnel hostnames if needed).
+      render: js
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: "Whatever applies: `lmca status`, `lmca logs backend|storefront`, `lmca logs` (containers), `lmca tunnel logs`, or `lmca ports`."
+      render: shell
   - type: input
     id: versions
     attributes:
       label: Versions
-      placeholder: "module 0.1.0, Node 20.11, Docker 27, macOS 15 / Ubuntu 24.04"
+      placeholder: "Node 20.11, Docker 27, macOS 15 / Ubuntu 24.04"
     validations:
       required: true

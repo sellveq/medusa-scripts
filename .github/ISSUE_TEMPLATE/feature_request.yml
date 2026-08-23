@@ -1,19 +1,41 @@
 name: Feature request
-description: Suggest an improvement or new capability for this module
+description: Suggest an improvement or new capability for lmca (@selveq/medusa-scripts)
 title: "[Feature] "
 labels: ["enhancement"]
 body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - stack lifecycle (start / stop / restart / destroy / status)
+        - port allocation
+        - database tooling (import / dump / reset)
+        - migrate / seeding
+        - dev servers (backend / storefront)
+        - proxy / nginx routing
+        - tunnel
+        - init / config (lmca.js, npm scripts)
+        - new command
+        - other
+    validations:
+      required: true
   - type: textarea
     id: problem
     attributes:
       label: Problem / motivation
-      description: What are you trying to do that this module doesn't support today?
+      description: What are you trying to do in your local Medusa workflow that lmca doesn't support today?
     validations:
       required: true
   - type: textarea
     id: solution
     attributes:
       label: Proposed solution
-      description: "How it should work: configuration, behavior, commands."
+      description: "How it should work: the command or lmca.js configuration you'd expect, and its behavior."
     validations:
       required: true
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Current workaround
+      description: How you get by today, if at all (manual docker commands, edited .env, shell aliases, ...).

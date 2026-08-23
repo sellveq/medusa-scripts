@@ -5,10 +5,10 @@
   "keywords": [
     "medusa",
     "cli",
-    "docker",
-    "local-development",
     "lmca",
-    "local"
+    "local",
+    "docker",
+    "local-development"
   ],
   "author": "Selveq",
   "license": "OSL-3.0",
