@@ -1,0 +1,48 @@
+{
+  "name": "@selveq/medusa-scripts",
+  "version": "0.1.0",
+  "description": "Local dev CLI for Medusa projects: dockerized postgres/redis/nginx, port allocation, db import/dump, admin seeding, cloudflare tunnel",
+  "keywords": [
+    "medusa",
+    "cli",
+    "docker",
+    "local-development",
+    "lmca",
+    "local"
+  ],
+  "author": "Selveq",
+  "license": "OSL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sellveq/medusa-scripts.git"
+  },
+  "homepage": "https://github.com/sellveq/medusa-scripts#readme",
+  "bugs": {
+    "url": "https://github.com/sellveq/medusa-scripts/issues"
+  },
+  "bin": {
+    "lmca": "bin/lmca.js",
+    "medusa-scripts": "bin/lmca.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "assets",
+    "templates",
+    "scripts",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
