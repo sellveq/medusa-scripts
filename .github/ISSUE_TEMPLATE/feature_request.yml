@@ -1,0 +1,19 @@
+name: Feature request
+description: Suggest an improvement or new capability for this module
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What are you trying to do that this module doesn't support today?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: "How it should work: configuration, behavior, commands."
+    validations:
+      required: true

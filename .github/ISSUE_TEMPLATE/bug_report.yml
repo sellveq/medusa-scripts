@@ -1,0 +1,26 @@
+name: Bug report
+description: Report a defect in this module
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What went wrong, what you expected instead, and any error output.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: Steps to trigger it, including the command involved (lmca start, migrate, tunnel, ...) and your lmca.js configuration.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: "module 0.1.0, Node 20.11, Docker 27, macOS 15 / Ubuntu 24.04"
+    validations:
+      required: true
