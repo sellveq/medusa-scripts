@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
 #
-# Cloudflare tunnel for the local stack. Config: lmca.js (tunnel.name,
+# Cloudflare tunnel for the local stack. Config: lma.js (tunnel.name,
 # tunnel.hostnames keyed like apps.*; ports via the port cache).
 #
-#   lmca tunnel setup | start [app...] | quick [app] | stop | restart |
+#   lma tunnel setup | start [app...] | quick [app] | stop | restart |
 #              status | logs [-f]
 #
 set -euo pipefail
 
-if [ -n "${LMCA_ROOT:-}" ]; then
-  ROOT_DIR="$LMCA_ROOT"
+if [ -n "${LMA_ROOT:-}" ]; then
+  ROOT_DIR="$LMA_ROOT"
 else
   ROOT_DIR="$PWD"
-  while [ ! -f "$ROOT_DIR/lmca.js" ] && [ "$ROOT_DIR" != "/" ]; do ROOT_DIR="$(dirname "$ROOT_DIR")"; done
-  [ -f "$ROOT_DIR/lmca.js" ] || { echo "no lmca.js found — run 'lmca init' first" >&2; exit 1; }
+  while [ ! -f "$ROOT_DIR/lma.js" ] && [ "$ROOT_DIR" != "/" ]; do ROOT_DIR="$(dirname "$ROOT_DIR")"; done
+  [ -f "$ROOT_DIR/lma.js" ] || { echo "no lma.js found — run 'lma init' first" >&2; exit 1; }
 fi
-TUNNEL_DIR="$ROOT_DIR/node_modules/.lmca-cache/tunnel"
+TUNNEL_DIR="$ROOT_DIR/node_modules/.lma-cache/tunnel"
 mkdir -p "$TUNNEL_DIR"
-LIB="${LMCA_ASSETS:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}/../lib/ports.js"
+LIB="${LMA_ASSETS:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}/../lib/ports.js"
 ENV_FILE="$TUNNEL_DIR/tunnel.env"
 CONFIG_FILE="$TUNNEL_DIR/config.yml"
 PID_FILE="$TUNNEL_DIR/cloudflared.pid"
@@ -25,21 +25,21 @@ LOG_FILE="$TUNNEL_DIR/cloudflared.log"
 MODE_FILE="$TUNNEL_DIR/mode"
 URL_FILE="$TUNNEL_DIR/quick.url"
 ACTIVE_FILE="$TUNNEL_DIR/active"
-SELF="lmca tunnel"
+SELF="lma tunnel"
 
 # shellcheck disable=SC1090
 [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 
-PROJECT_NAME="$( (cd "$ROOT_DIR" && node -e 'process.stdout.write(require("./lmca.js").project || "")' 2>/dev/null) || true)"
+PROJECT_NAME="$( (cd "$ROOT_DIR" && node -e 'process.stdout.write(require("./lma.js").project || "")' 2>/dev/null) || true)"
 PROJECT_NAME="${PROJECT_NAME:-$(basename "$ROOT_DIR")}"
-TUNNEL_NAME="${TUNNEL_NAME:-$( (cd "$ROOT_DIR" && node -e 'process.stdout.write((require("./lmca.js").tunnel || {}).name || "")' 2>/dev/null) || true)}"
+TUNNEL_NAME="${TUNNEL_NAME:-$( (cd "$ROOT_DIR" && node -e 'process.stdout.write((require("./lma.js").tunnel || {}).name || "")' 2>/dev/null) || true)}"
 TUNNEL_NAME="${TUNNEL_NAME:-$PROJECT_NAME}"
-CREDS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/lmca/tunnels"
+CREDS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/lma/tunnels"
 CREDS_FILE="$CREDS_DIR/$TUNNEL_NAME.json"
 # per-project metrics port so tunnels can coexist
 _METRICS_PORT="$( (cd "$ROOT_DIR" && node -e '
 const lib = require(process.argv[1]);
-const c = require("./lmca.js");
+const c = require("./lma.js");
 process.stdout.write(String((c.tunnel || {}).metricsPort || 20000 + (lib.projectId(process.cwd(), c) % 10000)));
 ' "$LIB" 2>/dev/null) || true)"
 METRICS_ADDR="${METRICS_ADDR:-127.0.0.1:${_METRICS_PORT:-20251}}"
@@ -56,7 +56,7 @@ app_map() {
     (cd "$ROOT_DIR" && node -e '
 (async () => {
     const { ports } = await require(process.argv[1]).resolve(process.cwd());
-    const c = require("./lmca.js");
+    const c = require("./lma.js");
     const P = (c.tunnel || {}).hostnames || {};
     const rows = [];
     for (const k of Object.keys(c.apps || {})) {
@@ -92,7 +92,7 @@ require_setup() {
         chmod 600 "$CREDS_FILE" 2>/dev/null || true
         ok "Moved tunnel credentials to $CREDS_FILE (survives clean installs)"
     fi
-    [ -f "$CREDS_FILE" ] || die "No named tunnel configured. Run 'lmca tunnel setup', or 'lmca tunnel quick' for a throwaway URL."
+    [ -f "$CREDS_FILE" ] || die "No named tunnel configured. Run 'lma tunnel setup', or 'lma tunnel quick' for a throwaway URL."
 }
 
 tunnel_mode() { if [ -f "$MODE_FILE" ]; then cat "$MODE_FILE"; else printf 'named'; fi; }
@@ -109,7 +109,7 @@ preflight() { # $@ = selected apps
     local pid
     if pid="$(tunnel_pid)"; then
         ok "Tunnel already running (pid $pid, $(tunnel_mode))"
-        info "  ${dim}Restart it with: lmca tunnel stop && lmca tunnel start${off}"
+        info "  ${dim}Restart it with: lma tunnel stop && lma tunnel start${off}"
         return 1
     fi
     local app port public any_up=0
@@ -123,7 +123,7 @@ preflight() { # $@ = selected apps
             warn "$app is NOT listening on localhost:$port (start it: npm run dev)"
         fi
     done < <(app_map)
-    [ "$any_up" = "1" ] || die "None of the selected apps are running. Start the stack first: lmca start && npm run dev"
+    [ "$any_up" = "1" ] || die "None of the selected apps are running. Start the stack first: lma start && npm run dev"
     return 0
 }
 
@@ -167,7 +167,7 @@ write_config() {
     service: http://localhost:$port
 "
     done < <(app_map)
-    [ -n "$ingress" ] || die "No tunnel.hostnames defined in lmca.js."
+    [ -n "$ingress" ] || die "No tunnel.hostnames defined in lma.js."
 
     mkdir -p "$TUNNEL_DIR"
     cat > "$CONFIG_FILE" <<EOF
@@ -218,12 +218,12 @@ report_up() {
         done < <(app_map)
     fi
     info ""
-    info "  ${dim}Stop:    lmca tunnel stop${off}"
+    info "  ${dim}Stop:    lma tunnel stop${off}"
 }
 
 cmd_setup() {
     need_cloudflared
-    [ -n "$(app_map)" ] || die "lmca.js needs apps.* ports plus a tunnel.hostnames map (same keys as apps)."
+    [ -n "$(app_map)" ] || die "lma.js needs apps.* ports plus a tunnel.hostnames map (same keys as apps)."
     info "Public hostnames:"
     app_map | awk -F'\t' '{ printf "  %s -> %s (localhost:%s)\n", $3, $1, $2 }'
 
@@ -280,7 +280,7 @@ METRICS_ADDR="$METRICS_ADDR"
 EOF
     ok "Wrote $(basename "$ENV_FILE")"
     info ""
-    ok "Setup complete. Start with: ${bold}lmca tunnel start${off} (all) or ${bold}lmca tunnel start storefront${off}"
+    ok "Setup complete. Start with: ${bold}lma tunnel start${off} (all) or ${bold}lma tunnel start storefront${off}"
 }
 
 cmd_start() {
@@ -296,7 +296,7 @@ cmd_start() {
 
     local uuid
     uuid="$(tunnel_uuid "$TUNNEL_NAME")"
-    [ -n "$uuid" ] || die "Tunnel '$TUNNEL_NAME' not found. Run: lmca tunnel setup"
+    [ -n "$uuid" ] || die "Tunnel '$TUNNEL_NAME' not found. Run: lma tunnel setup"
     write_config "$uuid" "$CREDS_FILE" "$@"
 
     launch tunnel \
@@ -309,7 +309,7 @@ cmd_start() {
 
     if ! wait_ready; then
         warn "Tunnel started but did not report ready within ${READY_TIMEOUT}s."
-        warn "It may still be connecting — check lmca tunnel logs"
+        warn "It may still be connecting — check lma tunnel logs"
     fi
     report_up
     cors_note "$@"
@@ -351,7 +351,7 @@ cmd_quick() {
 
     wait_ready || warn "URL assigned, but edge connections are still registering."
     report_up
-    [ "$app" = "storefront" ] && warn "storefront over quick URL: backend CORS does not include it — API calls from the browser may fail. Prefer 'lmca tunnel start' with named hostnames."
+    [ "$app" = "storefront" ] && warn "storefront over quick URL: backend CORS does not include it — API calls from the browser may fail. Prefer 'lma tunnel start' with named hostnames."
 }
 
 cmd_stop() {

@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a defect in lmca (@selveq/medusa-scripts)
+description: Report a defect in lma (@selveq/medusa-scripts)
 title: "[Bug] "
 labels: ["bug"]
 body:
@@ -7,10 +7,10 @@ body:
     id: area
     attributes:
       label: Area
-      description: Which part of lmca misbehaves?
+      description: Which part of lma misbehaves?
       options:
         - stack lifecycle (start / stop / restart / destroy / status)
-        - port allocation (lmca ports)
+        - port allocation (lma ports)
         - database (import-db / dump-db / reset-db / psql)
         - migrate / seed-admin
         - dev servers (backend / storefront startup, logs)
@@ -31,20 +31,20 @@ body:
     id: reproduce
     attributes:
       label: How to reproduce
-      description: Steps from a known state (e.g. fresh `lmca init`, or `lmca destroy` then `lmca start`) to the failure.
+      description: Steps from a known state (e.g. fresh `lma init`, or `lma destroy` then `lma start`) to the failure.
     validations:
       required: true
   - type: textarea
     id: config
     attributes:
-      label: lmca.js
-      description: Your project's lmca.js (redact real passwords and tunnel hostnames if needed).
+      label: lma.js
+      description: Your project's lma.js (redact real passwords and tunnel hostnames if needed).
       render: js
   - type: textarea
     id: logs
     attributes:
       label: Relevant logs
-      description: "Whatever applies: `lmca status`, `lmca logs backend|storefront`, `lmca logs` (containers), `lmca tunnel logs`, or `lmca ports`."
+      description: "Whatever applies: `lma status`, `lma logs backend|storefront`, `lma logs` (containers), `lma tunnel logs`, or `lma ports`."
       render: shell
   - type: input
     id: versions

@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest an improvement or new capability for lmca (@selveq/medusa-scripts)
+description: Suggest an improvement or new capability for lma (@selveq/medusa-scripts)
 title: "[Feature] "
 labels: ["enhancement"]
 body:
@@ -15,7 +15,7 @@ body:
         - dev servers (backend / storefront)
         - proxy / nginx routing
         - tunnel
-        - init / config (lmca.js, npm scripts)
+        - init / config (lma.js, npm scripts)
         - new command
         - other
     validations:
@@ -24,14 +24,14 @@ body:
     id: problem
     attributes:
       label: Problem / motivation
-      description: What are you trying to do in your local Medusa workflow that lmca doesn't support today?
+      description: What are you trying to do in your local Medusa workflow that lma doesn't support today?
     validations:
       required: true
   - type: textarea
     id: solution
     attributes:
       label: Proposed solution
-      description: "How it should work: the command or lmca.js configuration you'd expect, and its behavior."
+      description: "How it should work: the command or lma.js configuration you'd expect, and its behavior."
     validations:
       required: true
   - type: textarea

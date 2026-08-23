@@ -1,17 +1,17 @@
-name: ${LMCA_COMPOSE_PROJECT:-app}
+name: ${LMA_COMPOSE_PROJECT:-app}
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: ${LMCA_COMPOSE_PROJECT:-app}-postgres
+    container_name: ${LMA_COMPOSE_PROJECT:-app}-postgres
     ports:
-      - "${LMCA_PG_PORT:-5432}:5432"
+      - "${LMA_PG_PORT:-5432}:5432"
     environment:
-      POSTGRES_USER: ${LMCA_DB_USER:-app}
-      POSTGRES_PASSWORD: ${LMCA_DB_PASSWORD:-app}
-      POSTGRES_DB: ${LMCA_DB_NAME:-app}
+      POSTGRES_USER: ${LMA_DB_USER:-app}
+      POSTGRES_PASSWORD: ${LMA_DB_PASSWORD:-app}
+      POSTGRES_DB: ${LMA_DB_NAME:-app}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${LMCA_DB_USER:-app} -d ${LMCA_DB_NAME:-app}"]
+      test: ["CMD-SHELL", "pg_isready -U ${LMA_DB_USER:-app} -d ${LMA_DB_NAME:-app}"]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -20,14 +20,14 @@ services:
 
   proxy:
     image: nginx:1.27-alpine
-    container_name: ${LMCA_COMPOSE_PROJECT:-app}-proxy
+    container_name: ${LMA_COMPOSE_PROJECT:-app}-proxy
     ports:
-      - "${LMCA_HTTP_PORT:-80}:80"
+      - "${LMA_HTTP_PORT:-80}:80"
     volumes:
       - ./nginx.conf:/etc/nginx/templates/default.conf.template:ro
     environment:
-      LMCA_BACKEND_PORT: ${LMCA_BACKEND_PORT:-9000}
-      LMCA_STOREFRONT_PORT: ${LMCA_STOREFRONT_PORT:-8000}
+      LMA_BACKEND_PORT: ${LMA_BACKEND_PORT:-9000}
+      LMA_STOREFRONT_PORT: ${LMA_STOREFRONT_PORT:-8000}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -38,9 +38,9 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: ${LMCA_COMPOSE_PROJECT:-app}-redis
+    container_name: ${LMA_COMPOSE_PROJECT:-app}-redis
     ports:
-      - "${LMCA_REDIS_PORT:-6379}:6379"
+      - "${LMA_REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s

@@ -5,7 +5,7 @@
   "keywords": [
     "medusa",
     "cli",
-    "lmca",
+    "lma",
     "local",
     "docker",
     "local-development"
@@ -14,15 +14,15 @@
   "license": "OSL-3.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sellveq/medusa-scripts.git"
+    "url": "git+https://github.com/selveq/medusa-scripts.git"
   },
-  "homepage": "https://github.com/sellveq/medusa-scripts#readme",
+  "homepage": "https://github.com/selveq/medusa-scripts#readme",
   "bugs": {
-    "url": "https://github.com/sellveq/medusa-scripts/issues"
+    "url": "https://github.com/selveq/medusa-scripts/issues"
   },
   "bin": {
-    "lmca": "bin/lmca.js",
-    "medusa-scripts": "bin/lmca.js"
+    "lma": "bin/lma.js",
+    "medusa-scripts": "bin/lma.js"
   },
   "scripts": {
     "postinstall": "node scripts/postinstall.js"

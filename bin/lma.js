@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// lmca — local dev CLI. Finds the project root (nearest lmca.js upward) and
-// dispatches to the bash engine in assets/ with LMCA_ROOT/LMCA_ASSETS set.
+// lma — local dev CLI. Finds the project root (nearest lma.js upward) and
+// dispatches to the bash engine in assets/ with LMA_ROOT/LMA_ASSETS set.
 const { spawnSync } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
@@ -11,7 +11,7 @@ const TEMPLATES = path.join(__dirname, '..', 'templates')
 const findRoot = (from) => {
     let dir = from
     for (;;) {
-        if (fs.existsSync(path.join(dir, 'lmca.js'))) return dir
+        if (fs.existsSync(path.join(dir, 'lma.js'))) return dir
         const parent = path.dirname(dir)
         if (parent === dir) return null
         dir = parent
@@ -23,15 +23,15 @@ const render = (tpl, vars) =>
         .replace(/__([A-Z_]+)__/g, (_, k) => vars[k] ?? `__${k}__`)
 
 const SCRIPTS = {
-    start: 'lmca start', stop: 'lmca stop', restart: 'lmca restart',
-    destroy: 'lmca destroy', status: 'lmca status', logs: 'lmca logs',
-    psql: 'lmca psql', redis: 'lmca redis',
-    'import-db': 'lmca import-db', 'dump-db': 'lmca dump-db', 'reset-db': 'lmca reset-db',
-    migrate: 'lmca migrate', 'show-env': 'lmca show-env', lmca: 'lmca',
-    tunnel: 'lmca tunnel', 'tunnel:setup': 'lmca tunnel setup',
-    'tunnel:quick': 'lmca tunnel quick', 'tunnel:start': 'lmca tunnel start',
-    'tunnel:stop': 'lmca tunnel stop', 'tunnel:status': 'lmca tunnel status',
-    'tunnel:logs': 'lmca tunnel logs',
+    start: 'lma start', stop: 'lma stop', restart: 'lma restart',
+    destroy: 'lma destroy', status: 'lma status', logs: 'lma logs',
+    psql: 'lma psql', redis: 'lma redis',
+    'import-db': 'lma import-db', 'dump-db': 'lma dump-db', 'reset-db': 'lma reset-db',
+    migrate: 'lma migrate', 'show-env': 'lma show-env', lma: 'lma',
+    tunnel: 'lma tunnel', 'tunnel:setup': 'lma tunnel setup',
+    'tunnel:quick': 'lma tunnel quick', 'tunnel:start': 'lma tunnel start',
+    'tunnel:stop': 'lma tunnel stop', 'tunnel:status': 'lma tunnel status',
+    'tunnel:logs': 'lma tunnel logs',
 }
 
 const init = (cwd, args) => {
@@ -45,8 +45,8 @@ const init = (cwd, args) => {
         fs.writeFileSync(file, content)
         console.log(`  created   ${path.relative(cwd, file)}`)
     }
-    console.log(`Initializing lmca for '${project}' in ${cwd}`)
-    writeIfMissing(path.join(cwd, 'lmca.js'), render('lmca.js.tpl', vars))
+    console.log(`Initializing lma for '${project}' in ${cwd}`)
+    writeIfMissing(path.join(cwd, 'lma.js'), render('lma.js.tpl', vars))
 
     if (args.includes('--scripts')) {
         const pkgPath = path.join(cwd, 'package.json')
@@ -64,7 +64,7 @@ const init = (cwd, args) => {
             console.log(`  updated   package.json scripts${skipped.length ? ` (kept existing: ${skipped.join(', ')})` : ''}`)
         }
     }
-    console.log('\nNext: edit lmca.js, then run: lmca start')
+    console.log('\nNext: edit lma.js, then run: lma start')
 }
 
 // alias -> engine command
@@ -82,7 +82,7 @@ const main = () => {
 
     const root = findRoot(process.cwd())
     if (!root) {
-        console.error("No lmca.js found here or in any parent directory. Run 'lmca init' in your project root first.")
+        console.error("No lma.js found here or in any parent directory. Run 'lma init' in your project root first.")
         process.exit(1)
     }
 
@@ -114,7 +114,7 @@ const main = () => {
     const r = spawnSync('bash', [path.join(ASSETS, script), ...engineArgs], {
         stdio: 'inherit',
         cwd: root,
-        env: { ...process.env, LMCA_ROOT: root, LMCA_ASSETS: ASSETS },
+        env: { ...process.env, LMA_ROOT: root, LMA_ASSETS: ASSETS },
     })
     process.exit(r.status ?? 1)
 }

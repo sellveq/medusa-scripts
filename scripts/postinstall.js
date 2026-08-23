@@ -1,4 +1,4 @@
-// Adds the `"lmca": "lmca"` npm alias to the consuming project on install.
+// Adds the `"lma": "lma"` npm alias to the consuming project on install.
 // Never overwrites, never fails the install.
 const fs = require('node:fs')
 const path = require('node:path')
@@ -12,12 +12,12 @@ try {
     const raw = fs.readFileSync(pkgPath, 'utf8')
     const pkg = JSON.parse(raw)
     if (['medusa-scripts', '@selveq/medusa-scripts'].includes(pkg.name)) process.exit(0)
-    if (pkg.scripts && pkg.scripts.lmca) process.exit(0)
+    if (pkg.scripts && pkg.scripts.lma) process.exit(0)
 
     // keep the file's own indentation and trailing-newline style
     const indent = (raw.match(/^([ \t]+)"/m) || [, '  '])[1]
     const eof = raw.endsWith('\n') ? '\n' : ''
-    pkg.scripts = { lmca: 'lmca', ...(pkg.scripts || {}) }
+    pkg.scripts = { lma: 'lma', ...(pkg.scripts || {}) }
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, indent) + eof)
-    console.log('@selveq/medusa-scripts: added "lmca" script — use `npm run lmca <command>`')
+    console.log('@selveq/medusa-scripts: added "lma" script — use `npm run lma <command>`')
 } catch { /* convenience only */ }
