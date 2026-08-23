@@ -158,9 +158,6 @@ backend_cli() {
   )
 }
 
-# Seeds the lma.js admin ONLY when the user table exists and holds zero
-# admin accounts. mode "auto" (start-time) stays silent and never fails
-# the caller; manual mode ("lma seed-admin") reports every outcome.
 seed_admin() {
   local mode="${1:-manual}" count
   count="$(pg_exec psql -U "$LMA_DB_USER" -d "$LMA_DB_NAME" -tAc 'SELECT count(*) FROM "user" WHERE deleted_at IS NULL' 2>/dev/null || true)"
@@ -246,7 +243,10 @@ start_apps() {
         cd "$ROOT/$STOREFRONT_DIR" || exit 1
         export PORT="${PORT:-$LMA_STOREFRONT_PORT}"
         if [ ! -f .env ]; then
+          # both spellings: the official starter reads MEDUSA_BACKEND_URL,
+          # many storefronts read the NEXT_PUBLIC_ variant
           export MEDUSA_BACKEND_URL="${MEDUSA_BACKEND_URL:-http://localhost:$LMA_BACKEND_PORT}"
+          export NEXT_PUBLIC_MEDUSA_BACKEND_URL="${NEXT_PUBLIC_MEDUSA_BACKEND_URL:-http://localhost:$LMA_BACKEND_PORT}"
           export NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY="${NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY:-$key}"
           # serve at the domain root through the proxy
           export NEXT_PUBLIC_BASE_PATH="${NEXT_PUBLIC_BASE_PATH-}"
