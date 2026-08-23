@@ -54,7 +54,7 @@ merges `npm run` aliases into package.json for those who want them.
 | `lma dump-db` / `reset-db` | dump to cache / recreate empty (confirm) |
 | `lma psql` / `redis` | shells into the containers |
 | `lma migrate` | `medusa db:migrate` in the backend dir, then seed the admin |
-| `lma seed-admin` | create the lma.js admin user if no admin exists yet |
+| `lma seed-admin` | create the lma.js admin user if no admin exists yet — also runs automatically on `start` and `migrate`, and only ever seeds into a migrated DB with zero admin accounts |
 | `lma show-env` | DATABASE_URL/REDIS_URL lines for the backend .env |
 | `lma tunnel setup/start/quick/stop/status/logs` | Cloudflare tunnel (hostnames from lma.js) |
 

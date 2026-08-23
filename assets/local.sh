@@ -158,19 +158,27 @@ backend_cli() {
   )
 }
 
+# Seeds the lma.js admin ONLY when the user table exists and holds zero
+# admin accounts. mode "auto" (start-time) stays silent and never fails
+# the caller; manual mode ("lma seed-admin") reports every outcome.
 seed_admin() {
-  local count
+  local mode="${1:-manual}" count
   count="$(pg_exec psql -U "$LMA_DB_USER" -d "$LMA_DB_NAME" -tAc 'SELECT count(*) FROM "user" WHERE deleted_at IS NULL' 2>/dev/null || true)"
   if [ -z "$count" ]; then
+    [ "$mode" = "auto" ] && return 0   # DB not migrated yet — nothing to seed
     red "cannot check admin users — no user table yet. Run: lma migrate"
     return 1
   fi
   if [ "$count" != "0" ]; then
-    note "admin user already exists ($count) — seed skipped"
+    [ "$mode" = "auto" ] || note "admin user already exists ($count) — seed skipped"
     return 0
   fi
   note "no admin users — creating $LMA_ADMIN_EMAIL ..."
-  backend_cli user -e "$LMA_ADMIN_EMAIL" -p "$LMA_ADMIN_PASSWORD"
+  if ! backend_cli user -e "$LMA_ADMIN_EMAIL" -p "$LMA_ADMIN_PASSWORD"; then
+    red "admin seed failed — run 'lma seed-admin' after fixing the backend install"
+    [ "$mode" = "auto" ] && return 0
+    return 1
+  fi
   green "admin seeded: $LMA_ADMIN_EMAIL / $LMA_ADMIN_PASSWORD"
 }
 
@@ -301,6 +309,7 @@ case "$cmd" in
     if [ "$LMA_DOMAIN" != "localhost" ] && ! grep -q "$LMA_DOMAIN" /etc/hosts 2>/dev/null; then
       red "missing hosts entry — run once:  echo '127.0.0.1 $LMA_DOMAIN' | sudo tee -a /etc/hosts"
     fi
+    seed_admin auto
     start_apps
     wait_apps
     ;;
@@ -387,7 +396,7 @@ case "$cmd" in
     seed_admin
     ;;
   seed-admin)
-    seed_admin
+    seed_admin manual
     ;;
   show-env)
     cat <<EOF
@@ -415,7 +424,7 @@ Local stack for '$LMA_COMPOSE_PROJECT' (config: lma.js — infra in Docker, apps
   lma dump-db            gzip-dump the DB into node_modules/.lma-cache/dumps/
   lma reset-db           drop + recreate an empty DB (asks confirmation)
   lma migrate            medusa db:migrate in $BACKEND_DIR, then seed the admin
-  lma seed-admin         create the lma.js admin user if no admin exists yet
+  lma seed-admin         create the lma.js admin if no admin exists (auto on start/migrate)
   lma show-env           print DATABASE_URL/REDIS_URL lines for the backend .env
   lma ports [--reset]    show / reallocate the closest-available port map
   lma tunnel             Cloudflare tunnel (setup/start/quick/stop/status/logs)
