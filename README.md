@@ -58,9 +58,12 @@ merges `npm run` aliases into package.json for those who want them.
 | `lma show-env` | DATABASE_URL/REDIS_URL lines for the backend .env |
 | `lma tunnel setup/start/quick/stop/status/logs` | Cloudflare tunnel (hostnames from lma.js) |
 
-Ports: preferred values live in lma.js; the first run allocates the closest
-available port upward from each (ports held by this project's own containers
-count as available) and pins the result in the cache until `lma ports --reset`.
+Ports: preferred values live in lma.js; every run allocates the closest
+available port upward from each preferred value (80→81, 9000→9001, …) and
+pins the result in the cache. Pins are re-validated on every run: a port held
+by this project's own containers or dev servers stays put, while a pin that
+another process has taken since moves to the nearest free sibling.
+`lma ports --reset` reallocates everything from the preferred values.
 
 The proxy routes by path on `http://localhost` (or `proxy.domain` if set):
 `/app`, `/admin`, `/auth`, `/store`, `/hooks`, `/health` → backend; everything

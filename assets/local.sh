@@ -204,6 +204,7 @@ start_apps() {
       note "backend:    starting dev server (log: lma logs backend)"
       (
         cd "$ROOT/$BACKEND_DIR" || exit 1
+        export PORT="${PORT:-$LMA_BACKEND_PORT}"
         # inject dev defaults only when the app has no .env of its own
         if [ ! -f .env ]; then
           ensure_secrets
@@ -235,6 +236,7 @@ start_apps() {
       note "storefront: starting dev server (log: lma logs storefront)"
       (
         cd "$ROOT/$STOREFRONT_DIR" || exit 1
+        export PORT="${PORT:-$LMA_STOREFRONT_PORT}"
         if [ ! -f .env ]; then
           export MEDUSA_BACKEND_URL="${MEDUSA_BACKEND_URL:-http://localhost:$LMA_BACKEND_PORT}"
           export NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY="${NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY:-$key}"
