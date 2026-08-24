@@ -5,7 +5,7 @@ services:
     image: postgres:16-alpine
     container_name: ${LMA_COMPOSE_PROJECT:-app}-postgres
     ports:
-      - "${LMA_PG_PORT:-5432}:5432"
+      - "127.0.0.1:${LMA_PG_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: ${LMA_DB_USER:-app}
       POSTGRES_PASSWORD: ${LMA_DB_PASSWORD:-app}
@@ -40,7 +40,7 @@ services:
     image: redis:7-alpine
     container_name: ${LMA_COMPOSE_PROJECT:-app}-redis
     ports:
-      - "${LMA_REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${LMA_REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s

@@ -1,14 +1,50 @@
 #!/usr/bin/env bash
-# Local stack engine behind the lma CLI. Config: lma.js; env LMA_* overrides win.
+# Local stack engine behind the lma CLI. Config: lma.js / lma.cjs; env LMA_* overrides win.
 set -euo pipefail
 
 ASSETS="${LMA_ASSETS:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+has_config() { [ -f "$1/lma.js" ] || [ -f "$1/lma.cjs" ]; }
+
+# Defined before the config is read so `lma help` works before `lma init`.
+usage() {
+  cat <<EOF
+Local stack for '${LMA_COMPOSE_PROJECT:-<project>}' (config: lma.js / lma.cjs; infra in Docker, apps on host)
+
+  lma init [--scripts]   scaffold the config + the 'lma' npm alias here
+                         (--scripts adds an alias per command, --no-scripts adds none)
+  lma start              start Docker if needed, infra containers, then both dev servers
+  lma stop               remove containers + network (data volumes kept)
+  lma restart            recreate the containers
+  lma destroy            remove containers AND volumes (asks confirmation)
+  lma status             show container state
+  lma logs [svc]         container logs, or: lma logs backend|storefront
+  lma psql               psql shell into the database
+  lma redis              redis-cli shell
+  lma import-db <f>      drop DB, recreate, import .sql / .sql.gz / pg_dump file
+  lma dump-db            dump the DB gzipped into node_modules/.lma-cache/dumps/
+  lma reset-db           drop + recreate an empty DB (asks confirmation)
+  lma migrate            medusa db:migrate in ${BACKEND_DIR:-apps/backend}, then seed the admin
+  lma seed-admin         create the configured admin if no admin exists (auto on start/migrate)
+  lma show-env           print DATABASE_URL/REDIS_URL lines for the backend .env
+  lma ports [--reset]    show / reallocate the closest available port map
+  lma tunnel             Cloudflare tunnel (setup/start/quick/stop/status/logs)
+  lma --version          print the installed version
+
+  run via npx lma, npm run lma <cmd>, or bare lma inside npm scripts
+EOF
+}
+
 if [ -n "${LMA_ROOT:-}" ]; then
   ROOT="$LMA_ROOT"
 else
   ROOT="$PWD"
-  while [ ! -f "$ROOT/lma.js" ] && [ "$ROOT" != "/" ]; do ROOT="$(dirname "$ROOT")"; done
-  [ -f "$ROOT/lma.js" ] || { echo "no lma.js found — run 'lma init' first" >&2; exit 1; }
+  while ! has_config "$ROOT" && [ "$ROOT" != "/" ]; do ROOT="$(dirname "$ROOT")"; done
+fi
+if ! has_config "$ROOT"; then
+  case "${1:-help}" in
+    help|-h|--help) usage; exit 0 ;;
+    *) echo "no lma.js or lma.cjs found; run 'lma init' first" >&2; exit 1 ;;
+  esac
 fi
 COMPOSE_FILE="$ASSETS/docker-compose.yml"
 CACHE_DIR="$ROOT/node_modules/.lma-cache"
@@ -20,15 +56,17 @@ note()  { printf '\033[36m%s\033[0m\n' "$*"; }
 
 _cfg_err="$(mktemp)"
 if ! _cfg="$(node -e '
+try {
 const root = process.argv[1];
 const lib = require(process.argv[2]);
-const c = require(root + "/lma.js");
+const cfg = require(process.argv[3]);
+const c = cfg.load(root);
 const p = (c.services || {}).postgres || {};
 const r = (c.services || {}).redis || {};
 const x = c.proxy || {};
 const a = c.apps || {};
 const ad = c.admin || {};
-const proj = c.project || "app";
+const proj = cfg.project(root, c);
 const q = (v) => "\x27" + String(v).replace(/\x27/g, "\x27\\\x27\x27") + "\x27";
 console.log([
   `_C_PROJECT=${q(proj)}`,
@@ -47,8 +85,9 @@ console.log([
   `_C_ADMIN_EMAIL=${q(ad.email || "admin@" + proj + ".local")}`,
   `_C_ADMIN_PASSWORD=${q(ad.password || "medusa123")}`,
 ].join("\n"))
-' "$ROOT" "$ASSETS/../lib/ports.js" 2>"$_cfg_err")"; then
-  red "failed to read $ROOT/lma.js:"
+} catch (e) { console.error(e.message); process.exit(1) }
+' "$ROOT" "$ASSETS/../lib/ports.js" "$ASSETS/../lib/config.js" 2>"$_cfg_err")"; then
+  red "failed to read the lma config in $ROOT:"
   cat "$_cfg_err" >&2
   rm -f "$_cfg_err"
   exit 1
@@ -56,17 +95,19 @@ fi
 rm -f "$_cfg_err"
 eval "$_cfg"
 
-# closest-available ports (cached in node_modules/.lma-cache)
+# closest available ports (cached in node_modules/.lma-cache)
 _ports_err="$(mktemp)"
 if _pmap="$(node -e '
 (async () => {
   const { ports } = await require(process.argv[1]).resolve(process.argv[2])
-  process.stdout.write(Object.entries(ports).map(([k, v]) => `_P_${k.toUpperCase()}=${v}`).join("\n") + "\n")
+  // app keys may hold chars that are invalid in a shell variable name (admin-ui)
+  const shellName = (k) => k.toUpperCase().replace(/[^A-Z0-9_]/g, "_")
+  process.stdout.write(Object.entries(ports).map(([k, v]) => `_P_${shellName(k)}=${v}`).join("\n") + "\n")
 })().catch((e) => { console.error(e.message); process.exit(1) })
 ' "$ASSETS/../lib/ports.js" "$ROOT" 2>"$_ports_err")"; then
   eval "$_pmap"
 else
-  red "port allocation failed ($(cat "$_ports_err")) — using the preferred ports from lma.js"
+  red "port allocation failed ($(cat "$_ports_err")); using the preferred ports from the config"
 fi
 rm -f "$_ports_err"
 
@@ -97,20 +138,20 @@ need_docker() {
   command -v docker >/dev/null || { red "docker is not installed / not on PATH"; exit 1; }
   if ! docker info >/dev/null 2>&1; then
     read -r -p "Docker is not running. Start Docker Desktop? [y/N] " ans
-    case "$ans" in y|Y|yes|YES) ;; *) note "aborted — Docker stays off"; exit 1 ;; esac
+    case "$ans" in y|Y|yes|YES) ;; *) note "aborted"; exit 1 ;; esac
     if [ "$(uname)" = "Darwin" ]; then
       note "starting Docker Desktop..."
       open -g -a Docker || { red "could not launch Docker Desktop"; exit 1; }
     else
       red "start the docker daemon first (e.g. systemctl start docker)"; exit 1
     fi
-    # docker info can block while the daemon boots — bound by wall-clock
+    # docker info can block while the daemon boots; the wait is bound by wall clock
     local start_ts=$SECONDS
     while [ $((SECONDS - start_ts)) -lt 120 ]; do
       docker info >/dev/null 2>&1 && { green "docker is up"; return 0; }
       sleep 2
     done
-    red "docker did not become ready in 120s — open Docker Desktop and check it manually"; exit 1
+    red "docker did not become ready in 120s; open Docker Desktop and check it manually"; exit 1
   fi
 }
 
@@ -162,17 +203,17 @@ seed_admin() {
   local mode="${1:-manual}" count
   count="$(pg_exec psql -U "$LMA_DB_USER" -d "$LMA_DB_NAME" -tAc 'SELECT count(*) FROM "user" WHERE deleted_at IS NULL' 2>/dev/null || true)"
   if [ -z "$count" ]; then
-    [ "$mode" = "auto" ] && return 0   # DB not migrated yet — nothing to seed
-    red "cannot check admin users — no user table yet. Run: lma migrate"
+    [ "$mode" = "auto" ] && return 0   # DB not migrated yet; nothing to seed
+    red "cannot check admin users; no user table yet. Run: lma migrate"
     return 1
   fi
   if [ "$count" != "0" ]; then
-    [ "$mode" = "auto" ] || note "admin user already exists ($count) — seed skipped"
+    [ "$mode" = "auto" ] || note "admin user already exists ($count); seed skipped"
     return 0
   fi
-  note "no admin users — creating $LMA_ADMIN_EMAIL ..."
+  note "no admin users; creating $LMA_ADMIN_EMAIL ..."
   if ! backend_cli user -e "$LMA_ADMIN_EMAIL" -p "$LMA_ADMIN_PASSWORD"; then
-    red "admin seed failed — run 'lma seed-admin' after fixing the backend install"
+    red "admin seed failed; run 'lma seed-admin' after fixing the backend install"
     [ "$mode" = "auto" ] && return 0
     return 1
   fi
@@ -206,7 +247,7 @@ start_apps() {
     if port_up "$LMA_BACKEND_PORT"; then
       note "backend:    already running on :$LMA_BACKEND_PORT"
     else
-      note "backend:    starting dev server (log: lma logs backend)"
+      note "backend:    starting dev server"
       (
         cd "$ROOT/$BACKEND_DIR" || exit 1
         export PORT="${PORT:-$LMA_BACKEND_PORT}"
@@ -233,18 +274,15 @@ start_apps() {
       if [ ! -f "$ROOT/$STOREFRONT_DIR/.env" ]; then
         key="$(publishable_key || true)"
         if [ -z "$key" ]; then
-          red "storefront: skipped — no publishable API key in the DB yet."
-          note "  create one in the admin: $LMA_BASE_URL/app → Settings → Publishable API Keys, then run: lma restart"
+          red "storefront: skipped; no publishable API key; create one at $LMA_BASE_URL/app → Settings → Publishable API Keys, then: lma restart"
           return 0
         fi
       fi
-      note "storefront: starting dev server (log: lma logs storefront)"
+      note "storefront: starting dev server"
       (
         cd "$ROOT/$STOREFRONT_DIR" || exit 1
         export PORT="${PORT:-$LMA_STOREFRONT_PORT}"
         if [ ! -f .env ]; then
-          # both spellings: the official starter reads MEDUSA_BACKEND_URL,
-          # many storefronts read the NEXT_PUBLIC_ variant
           export MEDUSA_BACKEND_URL="${MEDUSA_BACKEND_URL:-http://localhost:$LMA_BACKEND_PORT}"
           export NEXT_PUBLIC_MEDUSA_BACKEND_URL="${NEXT_PUBLIC_MEDUSA_BACKEND_URL:-http://localhost:$LMA_BACKEND_PORT}"
           export NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY="${NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY:-$key}"
@@ -273,7 +311,7 @@ wait_apps() {
       sleep 1
     done
     if [ "$up" = "1" ]; then green "$app up on :$port"
-    else red "$app did not come up — check: lma logs $app"; fi
+    else red "$app did not come up; check: lma logs $app"; fi
   done
 }
 
@@ -304,10 +342,10 @@ case "$cmd" in
     wait_healthy
     note "postgres:   postgres://$LMA_DB_USER:$LMA_DB_PASSWORD@localhost:$LMA_PG_PORT/$LMA_DB_NAME"
     note "redis:      redis://localhost:$LMA_REDIS_PORT"
-    note "storefront: $LMA_BASE_URL            (proxy → storefront)"
-    note "admin:      $LMA_BASE_URL/app        (proxy → backend)"
+    note "storefront: $LMA_BASE_URL"
+    note "admin:      $LMA_BASE_URL/app"
     if [ "$LMA_DOMAIN" != "localhost" ] && ! grep -q "$LMA_DOMAIN" /etc/hosts 2>/dev/null; then
-      red "missing hosts entry — run once:  echo '127.0.0.1 $LMA_DOMAIN' | sudo tee -a /etc/hosts"
+      red "missing hosts entry; run once:  echo '127.0.0.1 $LMA_DOMAIN' | sudo tee -a /etc/hosts"
     fi
     seed_admin auto
     start_apps
@@ -315,9 +353,9 @@ case "$cmd" in
     ;;
   stop|down)
     stop_apps
-    docker_running || { note "docker is not running — nothing to stop"; exit 0; }
+    docker_running || { note "docker is not running; nothing to stop"; exit 0; }
     "${COMPOSE[@]}" down
-    note "containers and network removed (data volumes kept; Docker itself stays running)"
+    note "containers and network removed"
     ;;
   restart)
     need_docker
@@ -369,12 +407,26 @@ case "$cmd" in
     [ -n "$file" ] && [ -f "$file" ] || { red "usage: lma import-db <dump.sql|dump.sql.gz|dump.pgcustom>"; exit 1; }
     drop_and_recreate_db
     note "importing $file ..."
+    # ON_ERROR_STOP=0: one bad statement must not abandon the restore; errors are counted and reported
+    mkdir -p "$CACHE_DIR"
+    import_log="$CACHE_DIR/last-import.log"
+    import_rc=0
     case "$file" in
-      *.sql.gz) gunzip -c "$file" | pg_exec psql -U "$LMA_DB_USER" -d "$LMA_DB_NAME" -v ON_ERROR_STOP=0 -q ;;
-      *.sql)    pg_exec psql -U "$LMA_DB_USER" -d "$LMA_DB_NAME" -v ON_ERROR_STOP=0 -q < "$file" ;;
-      *)        pg_exec pg_restore -U "$LMA_DB_USER" -d "$LMA_DB_NAME" --no-owner --no-privileges < "$file" ;;
+      *.sql.gz) gunzip -c "$file" | pg_exec psql -U "$LMA_DB_USER" -d "$LMA_DB_NAME" -v ON_ERROR_STOP=0 -q 2>"$import_log" || import_rc=$? ;;
+      *.sql)    pg_exec psql -U "$LMA_DB_USER" -d "$LMA_DB_NAME" -v ON_ERROR_STOP=0 -q < "$file" 2>"$import_log" || import_rc=$? ;;
+      *)        pg_exec pg_restore -U "$LMA_DB_USER" -d "$LMA_DB_NAME" --no-owner --no-privileges < "$file" 2>"$import_log" || import_rc=$? ;;
     esac
-    green "import finished"
+    import_errors="$(grep -cE 'ERROR:|error:' "$import_log" 2>/dev/null || true)"
+    import_errors="${import_errors:-0}"
+    if [ "$import_rc" != "0" ] || [ "$import_errors" != "0" ]; then
+      red "import completed with $import_errors error(s); the database may be incomplete"
+      grep -E 'ERROR:|error:' "$import_log" 2>/dev/null | head -5 | sed 's/^/    /' >&2 || true
+      if [ "$import_errors" -gt 5 ]; then note "    ... and $((import_errors - 5)) more; full log: $import_log"
+      else note "    log: $import_log"; fi
+      exit 1
+    fi
+    rm -f "$import_log"
+    green "import finished cleanly"
     ;;
   db:dump)
     mkdir -p "$DUMP_DIR"
@@ -388,10 +440,10 @@ case "$cmd" in
     read -r -p "Type 'reset' to confirm: " ans
     [ "$ans" = "reset" ] || { note "aborted"; exit 1; }
     drop_and_recreate_db
-    green "empty database recreated — run 'lma migrate' next"
+    green "empty database recreated"
     ;;
   migrate)
-    note "running Medusa migrations in $BACKEND_DIR (needs npm install done at repo root)..."
+    note "running Medusa migrations in $BACKEND_DIR..."
     backend_cli db:migrate
     seed_admin
     ;;
@@ -400,36 +452,12 @@ case "$cmd" in
     ;;
   show-env)
     cat <<EOF
-# add to $BACKEND_DIR/.env (create it from .env.template if missing):
+# add to $BACKEND_DIR/.env and include $LMA_BASE_URL in STORE_CORS, ADMIN_CORS and AUTH_CORS
 DATABASE_URL=postgres://$LMA_DB_USER:$LMA_DB_PASSWORD@localhost:$LMA_PG_PORT/$LMA_DB_NAME
 REDIS_URL=redis://localhost:$LMA_REDIS_PORT
-# and add $LMA_BASE_URL to STORE_CORS, ADMIN_CORS and AUTH_CORS
-# so the proxied domain ($LMA_BASE_URL + /app) can talk to the backend
 EOF
     ;;
   help|*)
-    cat <<EOF
-Local stack for '$LMA_COMPOSE_PROJECT' (config: lma.js — infra in Docker, apps on host)
-
-  lma init [--scripts]   scaffold lma.js here (--scripts adds npm run aliases)
-  lma start              start Docker if needed, infra containers, then both dev servers
-  lma stop               remove containers + network (data volumes kept)
-  lma restart            recreate the containers
-  lma destroy            remove containers AND volumes (asks confirmation)
-  lma status             show container state
-  lma logs [svc]         container logs, or: lma logs backend|storefront
-  lma psql               psql shell into the database
-  lma redis              redis-cli shell
-  lma import-db <f>      drop DB, recreate, import .sql / .sql.gz / pg_dump file
-  lma dump-db            gzip-dump the DB into node_modules/.lma-cache/dumps/
-  lma reset-db           drop + recreate an empty DB (asks confirmation)
-  lma migrate            medusa db:migrate in $BACKEND_DIR, then seed the admin
-  lma seed-admin         create the lma.js admin if no admin exists (auto on start/migrate)
-  lma show-env           print DATABASE_URL/REDIS_URL lines for the backend .env
-  lma ports [--reset]    show / reallocate the closest-available port map
-  lma tunnel             Cloudflare tunnel (setup/start/quick/stop/status/logs)
-
-  run via npx lma, npm run lma <cmd>, or bare lma inside npm scripts
-EOF
+    usage
     ;;
 esac

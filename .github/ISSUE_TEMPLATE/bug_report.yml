@@ -16,7 +16,7 @@ body:
         - dev servers (backend / storefront startup, logs)
         - proxy / nginx routing
         - tunnel (setup / start / quick / stop)
-        - init / install (scaffolding, npm scripts, postinstall)
+        - init / install (scaffolding, npm scripts)
         - other
     validations:
       required: true

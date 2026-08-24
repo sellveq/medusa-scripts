@@ -2,9 +2,9 @@ module.exports = {
     project: '__PROJECT__',
     services: {
         postgres: {
-            user: '__PROJECT__',
-            password: '__PROJECT__',
-            database: '__PROJECT__',
+            user: 'medusa',
+            password: 'medusa',
+            database: 'medusa-backend',
         },
     },
     admin: {
@@ -26,7 +26,7 @@ module.exports = {
         name: '__PROJECT__',
         hostnames: {
             storefront: 'example.com',
-            backend: 'api.example.com',
+            backend: 'app.example.com',
         },
     },
 }

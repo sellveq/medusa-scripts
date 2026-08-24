@@ -1,23 +1,37 @@
 #!/usr/bin/env bash
-#
-# Cloudflare tunnel for the local stack. Config: lma.js (tunnel.name,
-# tunnel.hostnames keyed like apps.*; ports via the port cache).
+# Cloudflare tunnel for the local stack; config from lma.js / lma.cjs
 #
 #   lma tunnel setup | start [app...] | quick [app] | stop | restart |
 #              status | logs [-f]
 #
 set -euo pipefail
 
+has_config() { [ -f "$1/lma.js" ] || [ -f "$1/lma.cjs" ]; }
 if [ -n "${LMA_ROOT:-}" ]; then
   ROOT_DIR="$LMA_ROOT"
 else
   ROOT_DIR="$PWD"
-  while [ ! -f "$ROOT_DIR/lma.js" ] && [ "$ROOT_DIR" != "/" ]; do ROOT_DIR="$(dirname "$ROOT_DIR")"; done
-  [ -f "$ROOT_DIR/lma.js" ] || { echo "no lma.js found — run 'lma init' first" >&2; exit 1; }
+  while ! has_config "$ROOT_DIR" && [ "$ROOT_DIR" != "/" ]; do ROOT_DIR="$(dirname "$ROOT_DIR")"; done
+  has_config "$ROOT_DIR" || { echo "no lma.js or lma.cjs found; run 'lma init' first" >&2; exit 1; }
 fi
 TUNNEL_DIR="$ROOT_DIR/node_modules/.lma-cache/tunnel"
 mkdir -p "$TUNNEL_DIR"
-LIB="${LMA_ASSETS:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}/../lib/ports.js"
+_LIBDIR="${LMA_ASSETS:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}/../lib"
+LIB="$_LIBDIR/ports.js"
+CFG="$_LIBDIR/config.js"
+
+# readers below fall back silently on error; fail once here with the real reason
+_cfg_err="$(mktemp)"
+if ! node -e '
+try { require(process.argv[1]).load(process.argv[2]) }
+catch (e) { console.error(e.message); process.exit(1) }
+' "$CFG" "$ROOT_DIR" 2>"$_cfg_err"; then
+    printf '\033[31m✖\033[0m failed to read the lma config in %s:\n' "$ROOT_DIR" >&2
+    cat "$_cfg_err" >&2
+    rm -f "$_cfg_err"
+    exit 1
+fi
+rm -f "$_cfg_err"
 ENV_FILE="$TUNNEL_DIR/tunnel.env"
 CONFIG_FILE="$TUNNEL_DIR/config.yml"
 PID_FILE="$TUNNEL_DIR/cloudflared.pid"
@@ -30,18 +44,25 @@ SELF="lma tunnel"
 # shellcheck disable=SC1090
 [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 
-PROJECT_NAME="$( (cd "$ROOT_DIR" && node -e 'process.stdout.write(require("./lma.js").project || "")' 2>/dev/null) || true)"
+PROJECT_NAME="$( (cd "$ROOT_DIR" && node -e '
+const cfg = require(process.argv[1]);
+process.stdout.write(cfg.project(process.cwd(), cfg.load(process.cwd())));
+' "$CFG" 2>/dev/null) || true)"
 PROJECT_NAME="${PROJECT_NAME:-$(basename "$ROOT_DIR")}"
-TUNNEL_NAME="${TUNNEL_NAME:-$( (cd "$ROOT_DIR" && node -e 'process.stdout.write((require("./lma.js").tunnel || {}).name || "")' 2>/dev/null) || true)}"
+TUNNEL_NAME="${TUNNEL_NAME:-$( (cd "$ROOT_DIR" && node -e '
+const cfg = require(process.argv[1]);
+process.stdout.write((cfg.load(process.cwd()).tunnel || {}).name || "");
+' "$CFG" 2>/dev/null) || true)}"
 TUNNEL_NAME="${TUNNEL_NAME:-$PROJECT_NAME}"
 CREDS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/lma/tunnels"
 CREDS_FILE="$CREDS_DIR/$TUNNEL_NAME.json"
-# per-project metrics port so tunnels can coexist
+# metrics port per project so tunnels can coexist
 _METRICS_PORT="$( (cd "$ROOT_DIR" && node -e '
 const lib = require(process.argv[1]);
-const c = require("./lma.js");
+const cfg = require(process.argv[2]);
+const c = cfg.load(process.cwd());
 process.stdout.write(String((c.tunnel || {}).metricsPort || 20000 + (lib.projectId(process.cwd(), c) % 10000)));
-' "$LIB" 2>/dev/null) || true)"
+' "$LIB" "$CFG" 2>/dev/null) || true)"
 METRICS_ADDR="${METRICS_ADDR:-127.0.0.1:${_METRICS_PORT:-20251}}"
 READY_TIMEOUT="${READY_TIMEOUT:-30}"
 
@@ -51,12 +72,12 @@ ok()   { printf '%s✔%s %s\n' "$green" "$off" "$*"; }
 warn() { printf '%s!%s %s\n' "$yellow" "$off" "$*" >&2; }
 die()  { printf '%s✖%s %s\n' "$red" "$off" "$*" >&2; exit 1; }
 
-# Rows of "app<TAB>port<TAB>public". The trailing newline is load-bearing.
+# Rows of "app<TAB>port<TAB>public". The trailing newline matters.
 app_map() {
     (cd "$ROOT_DIR" && node -e '
 (async () => {
     const { ports } = await require(process.argv[1]).resolve(process.cwd());
-    const c = require("./lma.js");
+    const c = require(process.argv[2]).load(process.cwd());
     const P = (c.tunnel || {}).hostnames || {};
     const rows = [];
     for (const k of Object.keys(c.apps || {})) {
@@ -64,7 +85,7 @@ app_map() {
     }
     process.stdout.write(rows.map((r) => r.join("\t")).join("\n") + (rows.length ? "\n" : ""));
 })().catch(() => process.exit(1))
-' "$LIB" 2>/dev/null) || true
+' "$LIB" "$CFG" 2>/dev/null) || true
 }
 
 app_port() { app_map | awk -F'\t' -v a="$1" '$1 == a { print $2; exit }'; }
@@ -85,12 +106,12 @@ tunnel_pid() {
 }
 
 require_setup() {
-    # migrate credentials from the old in-cache location if they are still there
+    # migrate credentials from the old cache location if they are still there
     if [ ! -f "$CREDS_FILE" ] && [ -f "$TUNNEL_DIR/credentials.json" ]; then
         mkdir -p "$CREDS_DIR"
         cp "$TUNNEL_DIR/credentials.json" "$CREDS_FILE"
         chmod 600 "$CREDS_FILE" 2>/dev/null || true
-        ok "Moved tunnel credentials to $CREDS_FILE (survives clean installs)"
+        ok "Moved tunnel credentials to $CREDS_FILE"
     fi
     [ -f "$CREDS_FILE" ] || die "No named tunnel configured. Run 'lma tunnel setup', or 'lma tunnel quick' for a throwaway URL."
 }
@@ -109,7 +130,6 @@ preflight() { # $@ = selected apps
     local pid
     if pid="$(tunnel_pid)"; then
         ok "Tunnel already running (pid $pid, $(tunnel_mode))"
-        info "  ${dim}Restart it with: lma tunnel stop && lma tunnel start${off}"
         return 1
     fi
     local app port public any_up=0
@@ -167,11 +187,11 @@ write_config() {
     service: http://localhost:$port
 "
     done < <(app_map)
-    [ -n "$ingress" ] || die "No tunnel.hostnames defined in lma.js."
+    [ -n "$ingress" ] || die "No tunnel.hostnames defined in the lma config."
 
     mkdir -p "$TUNNEL_DIR"
     cat > "$CONFIG_FILE" <<EOF
-# Generated by tunnel.sh on every 'start' — do not edit.
+# Generated by tunnel.sh on every 'start'; do not edit.
 tunnel: $uuid
 credentials-file: $creds
 
@@ -189,14 +209,11 @@ cors_note() { # $@ = selection
     local sf_pub be_pub
     sf_pub="$(app_map | awk -F'\t' '$1 == "storefront" { print $3 }')"
     be_pub="$(app_map | awk -F'\t' '$1 == "backend" { print $3 }')"
-    info ""
-    info "  ${yellow}Reminder (not applied automatically):${off}"
     if [ -n "$sf_pub" ] && selected_has "storefront" "$@"; then
-        info "  ${dim}apps/backend/.env → add https://$sf_pub to STORE_CORS and AUTH_CORS, then restart the backend${off}"
+        warn "add https://$sf_pub to STORE_CORS/AUTH_CORS in apps/backend/.env, then restart the backend"
     fi
     if [ -n "$be_pub" ] && selected_has "backend" "$@"; then
-        info "  ${dim}apps/backend/.env → add https://$be_pub to ADMIN_CORS/AUTH_CORS if you use the public admin${off}"
-        info "  ${dim}point external webhooks (SP/Benulino) at https://$be_pub${off}"
+        warn "add https://$be_pub to ADMIN_CORS/AUTH_CORS if you use the public admin"
     fi
 }
 
@@ -207,7 +224,7 @@ report_up() {
     ok "Tunnel up (pid $(tunnel_pid || true), $mode)"
     if [ "$mode" = "quick" ]; then
         info "  ${bold}$(cat "$URL_FILE" 2>/dev/null)${off} ${dim}($(cat "$ACTIVE_FILE" 2>/dev/null))${off}"
-        info "  ${yellow}temporary URL — it changes every restart${off}"
+        info "  ${yellow}temporary URL; it changes every restart${off}"
     else
         local selection=()
         [ -f "$ACTIVE_FILE" ] && read -r -a selection < "$ACTIVE_FILE" || true
@@ -217,19 +234,16 @@ report_up() {
             info "  ${bold}https://$public${off} ${dim}($app → localhost:$port)${off}"
         done < <(app_map)
     fi
-    info ""
-    info "  ${dim}Stop:    lma tunnel stop${off}"
 }
 
 cmd_setup() {
     need_cloudflared
-    [ -n "$(app_map)" ] || die "lma.js needs apps.* ports plus a tunnel.hostnames map (same keys as apps)."
+    [ -n "$(app_map)" ] || die "The config needs apps.* plus a tunnel.hostnames map with the same keys. Check it with: lma ports"
     info "Public hostnames:"
-    app_map | awk -F'\t' '{ printf "  %s -> %s (localhost:%s)\n", $3, $1, $2 }'
+    app_map | awk -F'\t' '{ printf "  %s → %s (localhost:%s)\n", $3, $1, $2 }'
 
     if [ ! -f "$HOME/.cloudflared/cert.pem" ]; then
-        info "${bold}Cloudflare login required.${off}"
-        info "A browser will open — pick the zone that owns these domains."
+        info "${bold}Cloudflare login required${off}: a browser will open; pick the zone that owns these domains."
         cloudflared tunnel login || die "Login failed."
     fi
     [ -f "$HOME/.cloudflared/cert.pem" ] || die "Login did not produce ~/.cloudflared/cert.pem."
@@ -264,12 +278,11 @@ cmd_setup() {
 
     local d
     for d in $(app_map | cut -f3 | sort -u); do
-        info "Routing DNS ${d} -> ${TUNNEL_NAME}..."
+        info "Routing DNS ${d} → ${TUNNEL_NAME}..."
         if cloudflared tunnel route dns "$TUNNEL_NAME" "$d" 2>&1 | sed 's/^/  /'; then
             ok "DNS routed"
         else
-            warn "Could not create the DNS record for $d automatically."
-            warn "If it already exists, confirm it is a CNAME to $uuid.cfargotunnel.com"
+            warn "could not create the DNS record for $d; ensure it is a CNAME to $uuid.cfargotunnel.com"
         fi
     done
 
@@ -279,8 +292,7 @@ TUNNEL_NAME="$TUNNEL_NAME"
 METRICS_ADDR="$METRICS_ADDR"
 EOF
     ok "Wrote $(basename "$ENV_FILE")"
-    info ""
-    ok "Setup complete. Start with: ${bold}lma tunnel start${off} (all) or ${bold}lma tunnel start storefront${off}"
+    ok "Setup complete; start with: ${bold}lma tunnel start${off}"
 }
 
 cmd_start() {
@@ -308,8 +320,7 @@ cmd_start() {
     printf '%s\n' "$*" > "$ACTIVE_FILE"
 
     if ! wait_ready; then
-        warn "Tunnel started but did not report ready within ${READY_TIMEOUT}s."
-        warn "It may still be connecting — check lma tunnel logs"
+        warn "not ready after ${READY_TIMEOUT}s; may still be connecting; check: lma tunnel logs"
     fi
     report_up
     cors_note "$@"
@@ -351,7 +362,9 @@ cmd_quick() {
 
     wait_ready || warn "URL assigned, but edge connections are still registering."
     report_up
-    [ "$app" = "storefront" ] && warn "storefront over quick URL: backend CORS does not include it — API calls from the browser may fail. Prefer 'lma tunnel start' with named hostnames."
+    if [ "$app" = "storefront" ]; then
+        warn "quick URL is not in backend CORS; browser API calls may fail; prefer: lma tunnel start"
+    fi
 }
 
 cmd_stop() {
@@ -370,7 +383,7 @@ cmd_stop() {
     fi
     rm -f "$PID_FILE" "$MODE_FILE" "$URL_FILE" "$ACTIVE_FILE"
 
-    # Catch an instance orphaned by a crashed shell — scoped to this project.
+    # Catch an instance orphaned by a crashed shell; scoped to this project.
     if pkill -f "cloudflared.*$CONFIG_FILE" 2>/dev/null; then stopped=1; fi
     if pkill -f "cloudflared tunnel --url http://localhost:.*--metrics $METRICS_ADDR" 2>/dev/null; then stopped=1; fi
 
@@ -436,5 +449,5 @@ case "${1:-}" in
     ""|-h|--help|help)
         awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"
         ;;
-    *) die "Unknown command '$1'. Try: npm run tunnel" ;;
+    *) die "Unknown command '$1'; see: lma tunnel help" ;;
 esac

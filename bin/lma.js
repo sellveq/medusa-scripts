@@ -1,74 +1,92 @@
 #!/usr/bin/env node
-// lma — local dev CLI. Finds the project root (nearest lma.js upward) and
-// dispatches to the bash engine in assets/ with LMA_ROOT/LMA_ASSETS set.
+// lma, the local dev CLI: find the project root, dispatch to the bash engine in assets/
 const { spawnSync } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
+const config = require('../lib/config.js')
 
 const ASSETS = path.join(__dirname, '..', 'assets')
 const TEMPLATES = path.join(__dirname, '..', 'templates')
-
-const findRoot = (from) => {
-    let dir = from
-    for (;;) {
-        if (fs.existsSync(path.join(dir, 'lma.js'))) return dir
-        const parent = path.dirname(dir)
-        if (parent === dir) return null
-        dir = parent
-    }
-}
 
 const render = (tpl, vars) =>
     fs.readFileSync(path.join(TEMPLATES, tpl), 'utf8')
         .replace(/__([A-Z_]+)__/g, (_, k) => vars[k] ?? `__${k}__`)
 
+// `lma` first: the alias that survives name collisions leads the block
 const SCRIPTS = {
+    lma: 'lma',
     start: 'lma start', stop: 'lma stop', restart: 'lma restart',
     destroy: 'lma destroy', status: 'lma status', logs: 'lma logs',
     psql: 'lma psql', redis: 'lma redis',
     'import-db': 'lma import-db', 'dump-db': 'lma dump-db', 'reset-db': 'lma reset-db',
     migrate: 'lma migrate', 'seed-admin': 'lma seed-admin',
-    'show-env': 'lma show-env', lma: 'lma',
+    'show-env': 'lma show-env',
     tunnel: 'lma tunnel', 'tunnel:setup': 'lma tunnel setup',
     'tunnel:quick': 'lma tunnel quick', 'tunnel:start': 'lma tunnel start',
     'tunnel:stop': 'lma tunnel stop', 'tunnel:status': 'lma tunnel status',
     'tunnel:logs': 'lma tunnel logs',
 }
 
-const init = (cwd, args) => {
-    const project = path.basename(cwd).toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '') || 'app'
-    const vars = { PROJECT: project }
-    const writeIfMissing = (file, content) => {
-        if (fs.existsSync(file)) return console.log(`  kept      ${path.relative(cwd, file)}`)
-        fs.mkdirSync(path.dirname(file), { recursive: true })
-        fs.writeFileSync(file, content)
-        console.log(`  created   ${path.relative(cwd, file)}`)
+// merge npm aliases into package.json (formatting kept); true when `npm run <alias>` works
+const addScripts = (cwd, wanted) => {
+    const pkgPath = path.join(cwd, 'package.json')
+    const manual = Object.entries(wanted).map(([k, v]) => `    "${k}": "${v}"`).join(',\n')
+    if (!fs.existsSync(pkgPath)) {
+        console.log(`  no package.json here; add these scripts yourself:\n${manual}`)
+        return false
     }
-    console.log(`Initializing lma for '${project}' in ${cwd}`)
-    writeIfMissing(path.join(cwd, 'lma.js'), render('lma.js.tpl', vars))
-
-    if (args.includes('--scripts')) {
-        const pkgPath = path.join(cwd, 'package.json')
-        if (!fs.existsSync(pkgPath)) {
-            console.log('  no package.json here — add the scripts manually (see below)')
-        } else {
-            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
-            pkg.scripts = pkg.scripts || {}
-            const skipped = []
-            for (const [k, v] of Object.entries(SCRIPTS)) {
-                if (pkg.scripts[k] && pkg.scripts[k] !== v) skipped.push(k)
-                else pkg.scripts[k] = v
-            }
-            fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n')
-            console.log(`  updated   package.json scripts${skipped.length ? ` (kept existing: ${skipped.join(', ')})` : ''}`)
-        }
+    let raw, pkg
+    try {
+        raw = fs.readFileSync(pkgPath, 'utf8')
+        pkg = JSON.parse(raw)
+    } catch (e) {
+        // never leave a half written package.json behind a stack trace
+        console.log(`  skipped   package.json (${e.message}); add these scripts yourself:\n${manual}`)
+        return false
     }
-    console.log('\nNext: edit lma.js, then run: lma start')
+    const indent = (raw.match(/^([ \t]+)"/m) || [, '  '])[1]
+    const eof = raw.endsWith('\n') ? '\n' : ''
+    const existing = pkg.scripts || {}
+    const fresh = {}
+    const added = []
+    const kept = []
+    for (const [k, v] of Object.entries(wanted)) {
+        if (existing[k] === v) continue
+        if (existing[k]) kept.push(k)
+        else { fresh[k] = v; added.push(k) }
+    }
+    if (!added.length) {
+        console.log(`  kept      package.json scripts${kept.length ? ` (yours win: ${kept.join(', ')})` : ''}`)
+        return true
+    }
+    // new aliases go on top: `lma` is the entry point, not a footnote
+    pkg.scripts = { ...fresh, ...existing }
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, indent) + eof)
+    console.log(`  updated   package.json (+${added.join(', ')})${kept.length ? ` (yours win: ${kept.join(', ')})` : ''}`)
+    return true
 }
 
-// alias -> engine command
+const init = (cwd, args) => {
+    const project = config.slug(path.basename(cwd)) || 'app'
+    const vars = { PROJECT: project }
+    const name = config.configName(cwd)
+    const existing = config.configPath(cwd)
+    console.log(`Initializing lma for '${project}' in ${cwd}`)
+    if (existing) {
+        console.log(`  kept      ${path.relative(cwd, existing)}`)
+    } else {
+        fs.writeFileSync(path.join(cwd, name), render('lma.js.tpl', vars))
+        console.log(`  created   ${name}${name === 'lma.cjs' ? '  (.cjs: this project is "type": "module")' : ''}`)
+    }
+
+    // init adds the `lma` alias by default; --scripts adds every command, --no-scripts none
+    const wired = !args.includes('--no-scripts') &&
+        addScripts(cwd, args.includes('--scripts') ? SCRIPTS : { lma: 'lma' })
+    const run = wired ? 'npm run lma start' : 'npx lma start'
+    console.log(`\nNext: edit ${existing ? path.basename(existing) : name}, then run: ${run}`)
+}
+
+// alias → engine command
 const ALIAS = {
     'import-db': ['local.sh', 'db:import'],
     'dump-db': ['local.sh', 'db:dump'],
@@ -79,11 +97,18 @@ const ALIAS = {
 const main = () => {
     const [cmd = 'help', ...args] = process.argv.slice(2)
 
+    if (cmd === '--version' || cmd === '-v' || cmd === 'version') {
+        const { name, version } = require('../package.json')
+        return console.log(`${name} ${version} (node ${process.versions.node})`)
+    }
+
     if (cmd === 'init') return init(process.cwd(), args)
 
-    const root = findRoot(process.cwd())
-    if (!root) {
-        console.error("No lma.js found here or in any parent directory. Run 'lma init' in your project root first.")
+    // `lma help` is the first thing a new user types, so it must work before init
+    const isHelp = cmd === 'help' || cmd === '-h' || cmd === '--help'
+    const root = config.findRoot(process.cwd())
+    if (!root && !isHelp) {
+        console.error(`No ${config.NAMES.join(' or ')} here or in any parent directory. Run 'lma init' in your project root first.`)
         process.exit(1)
     }
 
@@ -112,10 +137,15 @@ const main = () => {
         engineArgs = [cmd, ...args]
     }
 
+    // with no project yet (help only), let the engine run configless from cwd
+    const env = { ...process.env, LMA_ASSETS: ASSETS }
+    if (root) env.LMA_ROOT = root
+    else delete env.LMA_ROOT
+
     const r = spawnSync('bash', [path.join(ASSETS, script), ...engineArgs], {
         stdio: 'inherit',
-        cwd: root,
-        env: { ...process.env, LMA_ROOT: root, LMA_ASSETS: ASSETS },
+        cwd: root || process.cwd(),
+        env,
     })
     process.exit(r.status ?? 1)
 }

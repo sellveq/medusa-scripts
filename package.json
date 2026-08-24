@@ -11,7 +11,7 @@
     "local-development"
   ],
   "author": "Selveq",
-  "license": "OSL-3.0",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/selveq/medusa-scripts.git"
@@ -24,15 +24,12 @@
     "lma": "bin/lma.js",
     "medusa-scripts": "bin/lma.js"
   },
-  "scripts": {
-    "postinstall": "node scripts/postinstall.js"
-  },
+  "exports": {},
   "files": [
     "bin",
     "lib",
     "assets",
     "templates",
-    "scripts",
     "README.md"
   ],
   "engines": {
