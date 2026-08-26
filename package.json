@@ -1,6 +1,6 @@
 {
   "name": "@selveq/medusa-scripts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local dev CLI for Medusa projects: dockerized postgres/redis/nginx, port allocation, db import/dump, admin seeding, cloudflare tunnel",
   "keywords": [
     "medusa",
@@ -24,7 +24,10 @@
     "lma": "bin/lma.js",
     "medusa-scripts": "bin/lma.js"
   },
-  "exports": {},
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:watch": "node --test --watch test/*.test.js"
+  },
   "files": [
     "bin",
     "lib",

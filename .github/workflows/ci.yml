@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'release/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test · node ${{ matrix.node }} · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: ['20', '22', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node --version && bash --version | head -1
+      - run: npm test
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck
+      # bash 3.2 is what ships on macOS, and that is the floor we support
+      - run: shellcheck --shell=bash --severity=warning assets/*.sh
+
+  # Publish the tarball into a scratch project the way a user would, then bring
+  # the real stack up on real images and tear it down again.
+  install:
+    name: fresh install + docker start
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Pack the package
+        run: echo "TARBALL=$(npm pack --silent)" >> "$GITHUB_ENV"
+
+      - name: Install it into a scratch project
+        run: |
+          mkdir -p /tmp/scratch
+          cd /tmp/scratch
+          npm init -y >/dev/null
+          npm i -D "$GITHUB_WORKSPACE/$TARBALL"
+
+      - name: lma init
+        working-directory: /tmp/scratch
+        run: |
+          npx lma init
+          test -f lma.js
+          test -f .local-medusa-app/secrets.env
+          test "$(stat -c '%a' .local-medusa-app/secrets.env)" = 600
+          # the config must never ship a shared default password
+          ! grep -q medusa123 lma.js
+
+      - name: Dry runs change nothing
+        working-directory: /tmp/scratch
+        run: |
+          npx lma start --dry-run
+          npx lma destroy --dry-run
+          npx lma reset-db --dry-run
+          test -z "$(docker ps -aq)"
+          # the split: durable state at the root, regenerable state in node_modules
+          test -f .local-medusa-app/secrets.env
+          test -f node_modules/.local-medusa-app-cache/ports.json
+
+      - name: Start the stack for real
+        working-directory: /tmp/scratch
+        run: npx lma start
+
+      - name: The pinned images are what got pulled
+        working-directory: /tmp/scratch
+        run: |
+          node -e '
+            const images = require("@selveq/medusa-scripts/lib/images.js")
+            for (const s of ["postgres", "redis", "proxy"]) console.log(images.pinned(s))
+          ' > /tmp/pinned.txt
+          cat /tmp/pinned.txt
+          while read -r ref; do
+            docker image inspect "${ref%@*}" >/dev/null || { echo "missing $ref"; exit 1; }
+          done < /tmp/pinned.txt
+
+      - name: Postgres and Redis answer, and only on loopback
+        working-directory: /tmp/scratch
+        run: |
+          npx lma status
+          npx lma psql -c 'select 1'
+          docker port "$(docker ps --filter name=-postgres --format '{{.Names}}')" | tee /tmp/pg-ports
+          grep -q '127.0.0.1' /tmp/pg-ports
+
+      - name: Dump and reset round-trip
+        working-directory: /tmp/scratch
+        run: |
+          npx lma dump-db
+          ls .local-medusa-app/dumps/*.sql.gz
+          npx lma reset-db --yes
+
+      - name: A destructive command refuses without a tty
+        working-directory: /tmp/scratch
+        run: |
+          if npx lma destroy < /dev/null; then echo "destroy should have refused"; exit 1; fi
+          docker volume ls | grep -q postgres-data
+
+      - name: Tear it all down
+        working-directory: /tmp/scratch
+        if: always()
+        run: npx lma destroy --yes

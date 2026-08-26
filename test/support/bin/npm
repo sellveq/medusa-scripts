@@ -1,0 +1,17 @@
+#!/usr/bin/env node
+// Stand-in for npm: records the environment the dev server would have been
+// started with, so tests can assert on what lma injects.
+const fs = require('node:fs')
+
+const argv = process.argv.slice(2)
+const log = process.env.LMA_TEST_NPM_LOG
+if (log) {
+    const keep = {}
+    for (const [k, v] of Object.entries(process.env)) {
+        if (/^(PORT|__MEDUSA_|MEDUSA_|NEXT_PUBLIC_|DATABASE_URL|REDIS_URL|JWT_SECRET|COOKIE_SECRET|.*_CORS)/.test(k)) {
+            keep[k] = v
+        }
+    }
+    fs.appendFileSync(log, JSON.stringify({ argv, cwd: process.cwd(), env: keep }) + '\n')
+}
+process.exit(0)

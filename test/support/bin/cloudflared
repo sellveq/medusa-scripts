@@ -1,0 +1,42 @@
+#!/usr/bin/env node
+// records invocations, serves /ready, prints a fake trycloudflare URL
+const fs = require('node:fs')
+const http = require('node:http')
+
+const argv = process.argv.slice(2)
+const log = process.env.LMA_TEST_CLOUDFLARED_LOG
+if (log) fs.appendFileSync(log, JSON.stringify(argv) + '\n')
+
+const flag = (name) => {
+    const i = argv.indexOf(name)
+    return i === -1 ? null : argv[i + 1]
+}
+
+if (argv[0] === 'tunnel' && argv[1] === 'list') {
+    process.stdout.write('ID NAME CREATED CONNECTIONS\n')
+    process.stdout.write(`11111111-2222-3333-4444-555555555555 ${process.env.LMA_TEST_TUNNEL_NAME || 'demo'} 2026-01-01 0\n`)
+    process.exit(0)
+}
+
+if (argv[0] === 'tunnel' && argv[1] === 'route' && process.env.LMA_TEST_ROUTE_FAIL === '1') {
+    process.stderr.write('Failed to add route: An A, AAAA, or CNAME record with that host already exists.\n')
+    process.exit(1)
+}
+
+if (argv[0] === 'tunnel' && (argv.includes('run') || argv.includes('--url'))) {
+    if (process.env.LMA_TEST_CLOUDFLARED_DIE === '1') {
+        process.stderr.write('ERR failed to connect to the edge\n')
+        process.exit(1)
+    }
+    const metrics = flag('--metrics') || '127.0.0.1:20251'
+    const [host, port] = metrics.split(':')
+    if (argv.includes('--url')) {
+        process.stdout.write('INF |  https://fake-test-tunnel.trycloudflare.com  |\n')
+    }
+    http.createServer((req, res) => { res.writeHead(req.url === '/ready' ? 200 : 404); res.end('{}') })
+        .listen(Number(port), host)
+    setTimeout(() => process.exit(0), 60_000).unref?.()
+    setInterval(() => {}, 1_000)
+} else {
+    process.exit(0)
+}

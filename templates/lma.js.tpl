@@ -9,7 +9,6 @@ module.exports = {
     },
     admin: {
         email: 'admin@__PROJECT__.local',
-        password: 'medusa123',
     },
     apps: {
         backend: {
@@ -24,9 +23,5 @@ module.exports = {
     },
     tunnel: {
         name: '__PROJECT__',
-        hostnames: {
-            storefront: 'example.com',
-            backend: 'app.example.com',
-        },
     },
 }

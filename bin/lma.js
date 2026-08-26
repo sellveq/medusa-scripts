@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-// lma, the local dev CLI: find the project root, dispatch to the bash engine in assets/
+// find the project root, dispatch to the bash engine in assets/
 const { spawnSync } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
 const config = require('../lib/config.js')
+const paths = require('../lib/paths.js')
+const secrets = require('../lib/secrets.js')
 
 const ASSETS = path.join(__dirname, '..', 'assets')
 const TEMPLATES = path.join(__dirname, '..', 'templates')
@@ -12,7 +14,6 @@ const render = (tpl, vars) =>
     fs.readFileSync(path.join(TEMPLATES, tpl), 'utf8')
         .replace(/__([A-Z_]+)__/g, (_, k) => vars[k] ?? `__${k}__`)
 
-// `lma` first: the alias that survives name collisions leads the block
 const SCRIPTS = {
     lma: 'lma',
     start: 'lma start', stop: 'lma stop', restart: 'lma restart',
@@ -20,14 +21,14 @@ const SCRIPTS = {
     psql: 'lma psql', redis: 'lma redis',
     'import-db': 'lma import-db', 'dump-db': 'lma dump-db', 'reset-db': 'lma reset-db',
     migrate: 'lma migrate', 'seed-admin': 'lma seed-admin',
-    'show-env': 'lma show-env',
+    admin: 'lma admin', 'show-env': 'lma show-env',
     tunnel: 'lma tunnel', 'tunnel:setup': 'lma tunnel setup',
     'tunnel:quick': 'lma tunnel quick', 'tunnel:start': 'lma tunnel start',
     'tunnel:stop': 'lma tunnel stop', 'tunnel:status': 'lma tunnel status',
     'tunnel:logs': 'lma tunnel logs',
 }
 
-// merge npm aliases into package.json (formatting kept); true when `npm run <alias>` works
+// merge npm aliases into package.json; true when `npm run <alias>` works
 const addScripts = (cwd, wanted) => {
     const pkgPath = path.join(cwd, 'package.json')
     const manual = Object.entries(wanted).map(([k, v]) => `    "${k}": "${v}"`).join(',\n')
@@ -40,7 +41,6 @@ const addScripts = (cwd, wanted) => {
         raw = fs.readFileSync(pkgPath, 'utf8')
         pkg = JSON.parse(raw)
     } catch (e) {
-        // never leave a half written package.json behind a stack trace
         console.log(`  skipped   package.json (${e.message}); add these scripts yourself:\n${manual}`)
         return false
     }
@@ -59,7 +59,6 @@ const addScripts = (cwd, wanted) => {
         console.log(`  kept      package.json scripts${kept.length ? ` (yours win: ${kept.join(', ')})` : ''}`)
         return true
     }
-    // new aliases go on top: `lma` is the entry point, not a footnote
     pkg.scripts = { ...fresh, ...existing }
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, indent) + eof)
     console.log(`  updated   package.json (+${added.join(', ')})${kept.length ? ` (yours win: ${kept.join(', ')})` : ''}`)
@@ -79,11 +78,16 @@ const init = (cwd, args) => {
         console.log(`  created   ${name}${name === 'lma.cjs' ? '  (.cjs: this project is "type": "module")' : ''}`)
     }
 
-    // init adds the `lma` alias by default; --scripts adds every command, --no-scripts none
+    paths.ensure(cwd)
+    const { values } = secrets.ensure(cwd)
+    console.log(`  created   ${paths.STATE}/  (ports, secrets, dumps, logs; git-ignored)`)
+
+    // --scripts adds an alias per command, --no-scripts none
     const wired = !args.includes('--no-scripts') &&
         addScripts(cwd, args.includes('--scripts') ? SCRIPTS : { lma: 'lma' })
     const run = wired ? 'npm run lma start' : 'npx lma start'
-    console.log(`\nNext: edit ${existing ? path.basename(existing) : name}, then run: ${run}`)
+    console.log(`\nAdmin login (generated, local only): admin@${project}.local / ${values.LMA_ADMIN_PASSWORD}`)
+    console.log(`Next: edit ${existing ? path.basename(existing) : name}, then run: ${run}`)
 }
 
 // alias → engine command
@@ -104,7 +108,6 @@ const main = () => {
 
     if (cmd === 'init') return init(process.cwd(), args)
 
-    // `lma help` is the first thing a new user types, so it must work before init
     const isHelp = cmd === 'help' || cmd === '-h' || cmd === '--help'
     const root = config.findRoot(process.cwd())
     if (!root && !isHelp) {
@@ -137,7 +140,6 @@ const main = () => {
         engineArgs = [cmd, ...args]
     }
 
-    // with no project yet (help only), let the engine run configless from cwd
     const env = { ...process.env, LMA_ASSETS: ASSETS }
     if (root) env.LMA_ROOT = root
     else delete env.LMA_ROOT

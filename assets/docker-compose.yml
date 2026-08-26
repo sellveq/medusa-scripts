@@ -1,8 +1,10 @@
 name: ${LMA_COMPOSE_PROJECT:-app}
 
+# Images are pinned by tag and digest in lib/images.js and exported by local.sh;
+# the defaults below only apply when this file is run through docker compose directly.
 services:
   postgres:
-    image: postgres:16-alpine
+    image: ${LMA_POSTGRES_IMAGE:-postgres:16.15-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685}
     container_name: ${LMA_COMPOSE_PROJECT:-app}-postgres
     ports:
       - "127.0.0.1:${LMA_PG_PORT:-5432}:5432"
@@ -19,7 +21,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
 
   proxy:
-    image: nginx:1.27-alpine
+    image: ${LMA_PROXY_IMAGE:-nginx:1.31.4-alpine@sha256:db35bfc6b2951e7f8a72db5db120288c127ffaeeb4a6d4b95a26fead017d5913}
     container_name: ${LMA_COMPOSE_PROJECT:-app}-proxy
     ports:
       - "${LMA_HTTP_PORT:-80}:80"
@@ -37,7 +39,7 @@ services:
       retries: 30
 
   redis:
-    image: redis:7-alpine
+    image: ${LMA_REDIS_IMAGE:-redis:7.4.11-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf}
     container_name: ${LMA_COMPOSE_PROJECT:-app}-redis
     ports:
       - "127.0.0.1:${LMA_REDIS_PORT:-6379}:6379"
